@@ -22,9 +22,10 @@ type Server struct {
 type command int
 
 type Store interface {
-	get(key string) string
+	get(key string) (string, bool)
 	put(key, value string)
 	del(key string)
+	list() map[string]string
 }
 
 type InMemoryStore struct {
@@ -36,6 +37,7 @@ const (
 	GET command = iota
 	PUT
 	DEL
+	LIST
 	UNKNOWN
 )
 
@@ -64,6 +66,16 @@ func (s *InMemoryStore) del(key string) {
 	delete(s.store, key)
 }
 
+func (s *InMemoryStore) list() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range s.store {
+		result[k] = v
+	}
+	return result
+}
+
 func NewServer(addr, port string) *Server {
 	return &Server{
 		addr:  addr,
@@ -80,6 +92,8 @@ func parseCommand(line string) command {
 		return PUT
 	case "DEL":
 		return DEL
+	case "LIST":
+		return LIST
 	default:
 		return UNKNOWN
 	}
@@ -125,7 +139,6 @@ func (server *Server) handleConnection(conn net.Conn) {
 			key, val, ok := parsePut(line)
 
 			if !ok {
-				// handle
 				conn.Write([]byte("Invalid put command"))
 				continue
 			}
@@ -133,13 +146,18 @@ func (server *Server) handleConnection(conn net.Conn) {
 		case DEL:
 			key, ok := parseGetOrDel(line)
 			if !ok {
-				// handle
 				conn.Write([]byte("Invalid del command"))
 				continue
 			}
 			server.store.del(key)
+		case LIST:
+			all := server.store.list()
+			var response strings.Builder
+			for k, v := range all {
+				response.WriteString(fmt.Sprintf("%s=%s\n", k, v))
+			}
+			conn.Write([]byte(response.String()))
 		case UNKNOWN:
-			// unknown command
 			log.Println("Unknwon command")
 		}
 	}
