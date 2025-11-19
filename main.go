@@ -23,6 +23,11 @@ type InMemoryStore struct {
 	mu    *sync.RWMutex
 }
 
+type FoundResult struct {
+	Found bool
+	Index int
+}
+
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{store: make(map[string]string), mu: &sync.RWMutex{}}
 }
@@ -66,12 +71,41 @@ func (server *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
-	log.Println("[info] handling a connection")
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		parts := strings.Split(line, " ")
-		fmt.Println(parts[0])
+		if len(parts) == 0 {
+			continue
+		}
+		cmd := strings.ToUpper(parts[0])
+		switch cmd {
+		case "GET":
+			log.Printf("[info] handling a connection %s request!\n", cmd)
+			found := FoundResult{false, -1}
+			for i, part := range parts {
+				if strings.Contains(part, "?key=") {
+					found.Found = true
+					found.Index = i
+				}
+			}
+
+			if !found.Found || found.Index < 0 {
+				continue
+			}
+			p := strings.Split(parts[found.Index], "=")
+			key := p[len(p)-1]
+			if value, ok := server.store.get(key); ok {
+				conn.Write([]byte(fmt.Sprintf("%s\n", value)))
+			} else {
+				conn.Write([]byte(fmt.Sprintf("[err] %s not found\n", key)))
+			}
+		case "POST":
+			log.Println("[POST]")
+		case "DELETE":
+			log.Println("[DEL]")
+
+		}
 	}
 }
 
@@ -89,13 +123,13 @@ func (server *Server) Start() {
 			log.Println("[err] accepting connection:", err)
 			continue
 		}
-		server.handleConnection(conn)
+		go server.handleConnection(conn)
 	}
 }
 
 func main() {
 
-	// server := NewServer(ADDR, PORT)
-	// server.Start()
+	server := NewServer(ADDR, PORT)
+	server.Start()
 
 }
