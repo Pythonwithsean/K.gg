@@ -6,37 +6,45 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 )
 
 const ADDR = "localhost"
 const PORT = "8080"
 
 type Store interface {
-	Get(key string) string
-	Put(key, value string)
-	Del(key string)
+	get(key string) string
+	put(key, value string)
+	del(key string)
 }
 
 type InMemoryStore struct {
 	store map[string]string
+	mu    *sync.RWMutex
 }
 
 func NewInMemoryStore() *InMemoryStore {
-	return &InMemoryStore{store: make(map[string]string)}
+	return &InMemoryStore{store: make(map[string]string), mu: &sync.RWMutex{}}
 }
 
-func (s *InMemoryStore) Get(key string) (string, bool) {
+func (s *InMemoryStore) get(key string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if value, ok := s.store[key]; ok {
 		return value, true
 	}
 	return "", false
 }
 
-func (s *InMemoryStore) Put(key, value string) {
+func (s *InMemoryStore) put(key, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.store[key] = value
 }
 
-func (s *InMemoryStore) Del(key string) {
+func (s *InMemoryStore) del(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.store, key)
 }
 
@@ -73,6 +81,7 @@ func (server *Server) Start() {
 	if err != nil {
 		log.Fatal("[err]: failed to start server listener")
 	}
+	defer listener.Close()
 	log.Printf("Server listening on %s", fullAddr)
 	for {
 		conn, err := listener.Accept()
@@ -82,12 +91,11 @@ func (server *Server) Start() {
 		}
 		server.handleConnection(conn)
 	}
-	defer listener.Close()
 }
 
 func main() {
 
-	server := NewServer(ADDR, PORT)
-	server.Start()
+	// server := NewServer(ADDR, PORT)
+	// server.Start()
 
 }
