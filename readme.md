@@ -1,6 +1,6 @@
-### Simple Key/Value Store in Go
+### Simple Key/val Store in Go
 
-A simple TCP-based key-value store server written in Go.
+A simple TCP-based key-val store server written in Go.
 
 #### Run program
 ```bash
@@ -8,10 +8,10 @@ go run main.go
 ```
 
 #### Available Commands
-- `GET <key>` : Retrieve the value for the specified key.
-- `PUT <key> <value>` : Store a value for the specified key.
-- `DEL <key>` : Delete the key-value pair.
-- `LIST` : List all keys and values.
+- `GET <key>` : Retrieve the val for the specified key.
+- `PUT <key> <val>` : Store a val for the specified key.
+- `DEL <key>` : Delete the key-val pair.
+- `LIST` : List all keys and vals.
 
 #### Usage
 After running the program, connect to the server using TELNET or nc on localhost:8080.

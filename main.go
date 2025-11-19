@@ -23,7 +23,7 @@ type command int
 
 type Store interface {
 	get(key string) (string, bool)
-	put(key, value string)
+	put(key, val string)
 	del(key string)
 	list() map[string]string
 }
@@ -48,16 +48,14 @@ func NewInMemoryStore() *InMemoryStore {
 func (s *InMemoryStore) get(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if value, ok := s.store[key]; ok {
-		return value, true
-	}
-	return "", false
+	val, ok := s.store[key]
+	return val, ok
 }
 
-func (s *InMemoryStore) put(key, value string) {
+func (s *InMemoryStore) put(key, val string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.store[key] = value
+	s.store[key] = val
 }
 
 func (s *InMemoryStore) del(key string) {
@@ -130,8 +128,8 @@ func (server *Server) handleConnection(conn net.Conn) {
 				conn.Write([]byte("Invalid get command"))
 				continue
 			}
-			if value, ok := server.store.get(key); ok {
-				conn.Write([]byte(fmt.Sprintf("%s\n", value)))
+			if val, ok := server.store.get(key); ok {
+				conn.Write([]byte(fmt.Sprintf("%s\n", val)))
 			} else {
 				conn.Write([]byte(fmt.Sprintf("key %s not found\n", key)))
 			}
