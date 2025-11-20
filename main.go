@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 const ADDR = "localhost"
@@ -19,6 +20,11 @@ type Server struct {
 	store *InMemoryStore
 }
 
+type storeValue struct {
+	value     string
+	expiresAt time.Time
+}
+
 type command int
 
 type Store interface {
@@ -26,10 +32,11 @@ type Store interface {
 	put(key, val string)
 	del(key string)
 	list() map[string]string
+	delExpired()
 }
 
 type InMemoryStore struct {
-	store map[string]string
+	store map[string]storeValue
 	mu    *sync.RWMutex
 }
 
@@ -42,20 +49,22 @@ const (
 )
 
 func NewInMemoryStore() *InMemoryStore {
-	return &InMemoryStore{store: make(map[string]string), mu: &sync.RWMutex{}}
+	return &InMemoryStore{store: make(map[string]storeValue), mu: &sync.RWMutex{}}
 }
 
 func (s *InMemoryStore) get(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	val, ok := s.store[key]
-	return val, ok
+	return val.value, ok
 }
 
 func (s *InMemoryStore) put(key, val string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.store[key] = val
+	now := time.Now()
+	end := now.Add(5 * time.Minute)
+	s.store[key] = storeValue{value: val, expiresAt: end}
 }
 
 func (s *InMemoryStore) del(key string) {
@@ -69,9 +78,23 @@ func (s *InMemoryStore) list() map[string]string {
 	defer s.mu.RUnlock()
 	result := make(map[string]string)
 	for k, v := range s.store {
-		result[k] = v
+		result[k] = v.value
 	}
 	return result
+}
+
+func (s *InMemoryStore) delExpired() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	amount := 0
+	for key, value := range s.store {
+		if now.Sub(value.expiresAt) > 0 {
+			amount += 1
+			delete(s.store, key)
+		}
+	}
+	log.Printf("deleted %d expired keys\n", amount)
 }
 
 func NewServer(addr, port string) *Server {
@@ -114,10 +137,26 @@ func parseGetOrDel(line string) (string, bool) {
 	return parts[1], true
 }
 
+func (server *Server) removeExpiredKeys() {
+	t := time.NewTicker(10 * time.Second)
+	for {
+		select {
+		case <-t.C:
+			log.Println("🗑️ Cleaning up expired keys")
+			server.store.delExpired()
+		default:
+			time.Sleep(time.Second * 30)
+		}
+	}
+}
+
 func (server *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
+	write := func(msg string) {
+		conn.Write([]byte(msg))
+	}
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -125,26 +164,26 @@ func (server *Server) handleConnection(conn net.Conn) {
 		case GET:
 			key, ok := parseGetOrDel(line)
 			if !ok {
-				conn.Write([]byte("Invalid get command"))
+				write("Invalid get command")
 				continue
 			}
 			if val, ok := server.store.get(key); ok {
-				conn.Write([]byte(fmt.Sprintf("%s\n", val)))
+				write(fmt.Sprintf("%s\n", val))
 			} else {
-				conn.Write([]byte(fmt.Sprintf("key %s not found\n", key)))
+				write(fmt.Sprintf("key %s not found\n", key))
 			}
 		case PUT:
 			key, val, ok := parsePut(line)
 
 			if !ok {
-				conn.Write([]byte("Invalid put command"))
+				write("Invalid put command")
 				continue
 			}
 			server.store.put(key, val)
 		case DEL:
 			key, ok := parseGetOrDel(line)
 			if !ok {
-				conn.Write([]byte("Invalid del command"))
+				write("Invalid del command")
 				continue
 			}
 			server.store.del(key)
@@ -154,7 +193,7 @@ func (server *Server) handleConnection(conn net.Conn) {
 			for k, v := range all {
 				response.WriteString(fmt.Sprintf("%s=%s\n", k, v))
 			}
-			conn.Write([]byte(response.String()))
+			write(response.String())
 		case UNKNOWN:
 			log.Println("Unknwon command")
 		}
@@ -169,8 +208,12 @@ func (server *Server) Start() {
 	}
 	defer listener.Close()
 	log.Printf("Server listening on %s", fullAddr)
+	go server.removeExpiredKeys()
 	for {
 		conn, err := listener.Accept()
+
+		log.Println("handling a request")
+
 		if err != nil {
 			log.Println("[err] accepting connection:", err)
 			continue
