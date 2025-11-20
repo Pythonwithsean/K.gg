@@ -34,11 +34,11 @@ type InMemoryStore struct {
 }
 
 const (
-	GET command = iota
+	UNKNOWN command = iota
+	GET
 	PUT
 	DEL
 	LIST
-	UNKNOWN
 )
 
 func NewInMemoryStore() *InMemoryStore {
@@ -180,8 +180,6 @@ func (server *Server) Start() {
 }
 
 func main() {
-
 	server := NewServer(ADDR, PORT)
 	server.Start()
-
 }
